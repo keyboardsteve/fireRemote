@@ -136,11 +136,7 @@ String processCommand(String cmd) {
 
 	switch (buff) {
 		case 'H':  //HEARTBEAT
-			/*
-			Serial.print("R");
-			Serial.println(operatingMode);
-			*/
-			//cmd = "";  //Since we are processing the command, reset it to nothing
+
 			break;
 		case 'F':  //FIRE
 			//Need to pull the channel number from the command, eg:  F1, F123, etc...
@@ -163,7 +159,6 @@ String processCommand(String cmd) {
 				else {
 					ret += "0";
 				}
-				//Serial.println(ret);
 			}
 			else if (operatingMode == '2') {  //FIRE MODE
 				ret = setChannelFire(tmp.toInt()-1);
@@ -171,7 +166,6 @@ String processCommand(String cmd) {
 			else if (operatingMode == '0') { //SAFETY Mode
 
 			}
-			//cmd = "";  //Since we are processing the command, reset it to nothing
 			break;
 		case 'M':  //CHANGE MODE
 			clearChannels();
@@ -187,35 +181,25 @@ String processCommand(String cmd) {
 					break;
 			}
 			operatingMode = cmd[1];
-			//cmd = "";  //Since we are processing the command, reset it to nothing
 			break;
 		default:
-			//Serial.print("E");
-			//Serial.println(cmd);
 			ret = "E";
 			ret += cmd;
-			//cmd = "";  //Since we are processing the command, reset it to nothing
 	}
 	return ret;
 }
 
 void testCircuit() {
 	testDone = true;
-	//Serial.println("DTestInterruptTripped");
 }
 
 String setChannelFire(unsigned int chn) {
 	String ret = "T";
-	int chip;
+	int chip = chn/8;
 	int channel = chn+1;
-	byte bit = B00000001;
-	chip = (chn/8);
-	channels[chip] |= (bit << (chn%8));
+
+	bitClear(channels[chip], chn%8);
 	channelTimeouts[chn] = TTL;
-	//Serial.print("T");  				  //substring denotes this is a fire/test response
-	//Serial.print(chn+1); //substring is the tube number (0 indexed)
-	//Serial.print("S");				  //substring denotes test result
-	//Serial.println("1");				  //substring denotes test pass
 	ret += String(channel);
 	ret += "S";
 	ret += "1";
@@ -223,37 +207,29 @@ String setChannelFire(unsigned int chn) {
 }
 
 void setChannelClear(unsigned int chn) {
-	int chip;
-	byte bit = B00000001;
-	chip = (chn/8);
-	channels[chip] ^= (bit << (chn%8));
-	//channelTimeouts[chn] = TTL;
+	int chip = chn/8;
+
+	bitSet(channels[chip], chn%8);
 }
 
 String setChannelTest(unsigned int chn) {
-	int chip;
+	int chip = chn/8;
 	int channel = chn+1;
-	String tmp = "";
-	byte bit = B00000001;
+	String ret = "";
+
 	clearChannels();
-	chip = (chn/8);
-	channels[chip] |= (bit << (chn%8));
+	bitClear(channels[chip], chn%8);
 	channelTimeouts[chn] = TTL;
-	tmp += "T";
-	tmp += String(channel);
-	tmp += "S";
-	//Serial.print("T");  				  //substring denotes this is a fire/test response
-	//Serial.print(chn+1); //substring is the tube number (0 indexed)
-	//Serial.print("S");				  //substring denotes test result
-	//  Below is where the information about PASS/FAIL need to be measured.
-	//Serial.println("1");				  //substring denotes test pass
-	return tmp;
+	ret += "T";
+	ret += String(channel);
+	ret += "S";
+	return ret;
 }
 
 void clearChannels() {  //This immediately clear all channels and timeouts
 
-	for (unsigned int i=0; i < NUMCHIPS; i++){ //pre-init the channels array to all zeros for safety
-		channels[i] = B00000000;	         //each bit represents a channel fire state: ON||OFF
+	for (unsigned int i=0; i < NUMCHIPS; i++){ //pre-init the channels array to all ones for safety (relays are neg-logic)
+		channels[i] = B11111111;	         //each bit represents a channel fire state: ON||OFF
 	}
 	for (unsigned int i=0; i < NUMCHIPS*8; i++){  //pre-init the channelTimouts to all zeros
 		channelTimeouts[i] = 0;
@@ -265,7 +241,6 @@ String setModeSafety() {
 	digitalWrite(highSupplyControlPin, LOW);
 	digitalWrite(lowSupplyControlPin, LOW);
 	digitalWrite(testControlPin, LOW);
-	//Serial.println("O0");
 	return ret;
 }
 
@@ -275,7 +250,6 @@ String setModeTest() {
 	delay(SWITCH_MODE_DELAY);
 	digitalWrite(lowSupplyControlPin, HIGH);
 	digitalWrite(testControlPin, HIGH);
-	//Serial.println("O1");
 	return ret;
 }
 
@@ -285,6 +259,5 @@ String setModeArmed() {
 	digitalWrite(testControlPin, LOW);
 	delay(SWITCH_MODE_DELAY);
 	digitalWrite(highSupplyControlPin, HIGH);
-	//Serial.println("O2");
 	return ret;
 }
