@@ -166,7 +166,7 @@ String processCommand(String cmd) {
 				//Serial.println(ret);
 			}
 			else if (operatingMode == '2') {  //FIRE MODE
-				setChannelFire(tmp.toInt()-1);
+				ret = setChannelFire(tmp.toInt()-1);
 			}
 			else if (operatingMode == '0') { //SAFETY Mode
 
@@ -207,15 +207,16 @@ void testCircuit() {
 String setChannelFire(unsigned int chn) {
 	String ret = "T";
 	int chip;
+	int channel = chn+1;
 	byte bit = B00000001;
 	chip = (chn/8);
 	channels[chip] |= (bit << (chn%8));
 	channelTimeouts[chn] = TTL;
-	Serial.print("T");  				  //substring denotes this is a fire/test response
-	Serial.print(chn+1); //substring is the tube number (0 indexed)
-	Serial.print("S");				  //substring denotes test result
-	Serial.println("1");				  //substring denotes test pass
-	ret += (chn+1);
+	//Serial.print("T");  				  //substring denotes this is a fire/test response
+	//Serial.print(chn+1); //substring is the tube number (0 indexed)
+	//Serial.print("S");				  //substring denotes test result
+	//Serial.println("1");				  //substring denotes test pass
+	ret += String(channel);
 	ret += "S";
 	ret += "1";
 	return ret;
