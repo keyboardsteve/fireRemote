@@ -6,7 +6,7 @@
 #define SAFETY 0
 #define TEST   1
 #define ARMED  2
-#define NUMCHIPS 10
+#define NUMCHIPS 7
 #define SWITCH_MODE_DELAY 500
 #define TTL 10 //The number of interrupt cycles that the channel will be held active.  Interrupt @ 10Hz (10 = 1 seconds)
 
@@ -14,7 +14,7 @@ char operatingMode = '0';
 char testStatus = '0';
 char buff;
 
-String command;
+String command = "";
 
 byte channels[NUMCHIPS]; //Each byte element represents an 8-bit shift register.
 int channelTimeouts[NUMCHIPS*8];  //each integer in the array represents a Time-To-Live value
@@ -31,6 +31,8 @@ int testSensePin = 3;  //Use Pin 2 for the Test input pin
 volatile int hbCounter = 0;
 
 volatile bool testDone = false;
+volatile bool timeToSendHeartbeat = false;
+volatile bool timeToShiftData = false;
 
 void setup(){
 
@@ -71,81 +73,46 @@ void setup(){
 
 void loop()
 {
-
-	command = "";
-	String tmp = "";
 	String response = "";
 	testDone = false;
 
-	if (Serial.available()) {
-		while (true) {	//Blocks to grab all available characters until the newline.
-			while (Serial.available() < 1) { ; }
-			char c = Serial.read();
-			if (c == '\n') { break; }
-			command += c;
+	if (Serial.available() > 0) {
+		char c = Serial.read();
+		command += c;
+	}
+
+	if (command.endsWith("\n")) {
+		response = processCommand(command);
+		if (response != "") {
+			Serial.println(response);
 		}
-		buff  = char(command[0]);
+		command = "";
+	}
 
-		switch (buff) {
-			case 'H':  //HEARTBEAT
-				/*
-				Serial.print("R");
-				Serial.println(operatingMode);
-				*/
-				break;
-			case 'F':  //FIRE
-				//Need to pull the channel number from the command, eg:  F1, F123, etc...
-				for (unsigned int i=0; i < command.length(); i++) {
-					if (isDigit(command[i])){
-						tmp += command[i];
-					}
-				}
-				if (operatingMode == '1') {  //TEST MODE
-					response = setChannelTest(tmp.toInt()-1);
+	if (timeToSendHeartbeat) {
+		timeToSendHeartbeat = false;
+		Serial.print("R");
+		Serial.println(operatingMode);
+	}
 
-					unsigned int j = 0;
-					while ((j < 2) && (!testDone)) {
-						delay(500);
-						j++;
-					}
-					if (testDone) {
-						 response += "1";
-					}
-					else {
-						response += "0";
-					}
-					Serial.println(response);
-				}
-				else if (operatingMode == '2') {  //FIRE MODE
-					setChannelFire(tmp.toInt()-1);
-				}
-				else if (operatingMode == '0') { //SAFETY Mode
-
-				}
-				break;
-			case 'M':  //CHANGE MODE
-				clearChannels();
-				switch (command[1]){
-					case '0':
-						setModeSafety();
-						break;
-					case '1':
-						setModeTest();
-						break;
-					case '2':
-						setModeArmed();
-						break;
-				}
-				operatingMode = command[1];
-				break;
-			default:
-				Serial.print("E");
-				Serial.println(command);
-		}
+	if (timeToShiftData) {
+		timeToShiftData = false;
+		shiftData();
 	}
 }
 
 ISR(TIMER1_COMPA_vect) {
+	timeToShiftData = true;
+
+	hbCounter += 1;
+	if (hbCounter >= 5) {
+		hbCounter = 0;
+		timeToSendHeartbeat = true;
+
+	}
+}
+
+void shiftData() {
 	digitalWrite(latchPin, HIGH);  //deactivate output enable here...
 	for(unsigned int i=0;i<NUMCHIPS;i++) {                  //For each chip...
 		shiftOut(dataPin, clockPin, LSBFIRST, channels[i]); //shift out the bits!
@@ -160,12 +127,76 @@ ISR(TIMER1_COMPA_vect) {
 			channelTimeouts[i] -= 1;
 		}
 	}
-	hbCounter += 1;
-	if (hbCounter >= 8) {
-		hbCounter = 0;
-		Serial.print("R");
-		Serial.println(operatingMode);
+}
+
+String processCommand(String cmd) {
+	char buff = cmd[0];
+	String ret = "";
+	String tmp = "";
+
+	switch (buff) {
+		case 'H':  //HEARTBEAT
+			/*
+			Serial.print("R");
+			Serial.println(operatingMode);
+			*/
+			//cmd = "";  //Since we are processing the command, reset it to nothing
+			break;
+		case 'F':  //FIRE
+			//Need to pull the channel number from the command, eg:  F1, F123, etc...
+			for (unsigned int i=0; i < cmd.length(); i++) {
+				if (isDigit(cmd[i])){
+					tmp += cmd[i];
+				}
+			}
+			if (operatingMode == '1') {  //TEST MODE
+				ret = setChannelTest(tmp.toInt()-1);
+
+				unsigned int j = 0;
+				while ((j < 2) && (!testDone)) {
+					delay(500);
+					j++;
+				}
+				if (testDone) {
+					 ret += "1";
+				}
+				else {
+					ret += "0";
+				}
+				//Serial.println(ret);
+			}
+			else if (operatingMode == '2') {  //FIRE MODE
+				setChannelFire(tmp.toInt()-1);
+			}
+			else if (operatingMode == '0') { //SAFETY Mode
+
+			}
+			//cmd = "";  //Since we are processing the command, reset it to nothing
+			break;
+		case 'M':  //CHANGE MODE
+			clearChannels();
+			switch (cmd[1]){
+				case '0':
+					ret = setModeSafety();
+					break;
+				case '1':
+					ret = setModeTest();
+					break;
+				case '2':
+					ret = setModeArmed();
+					break;
+			}
+			operatingMode = cmd[1];
+			//cmd = "";  //Since we are processing the command, reset it to nothing
+			break;
+		default:
+			//Serial.print("E");
+			//Serial.println(cmd);
+			ret = "E";
+			ret += cmd;
+			//cmd = "";  //Since we are processing the command, reset it to nothing
 	}
+	return ret;
 }
 
 void testCircuit() {
@@ -173,8 +204,8 @@ void testCircuit() {
 	//Serial.println("DTestInterruptTripped");
 }
 
-
-void setChannelFire(unsigned int chn) {
+String setChannelFire(unsigned int chn) {
+	String ret = "T";
 	int chip;
 	byte bit = B00000001;
 	chip = (chn/8);
@@ -184,6 +215,10 @@ void setChannelFire(unsigned int chn) {
 	Serial.print(chn+1); //substring is the tube number (0 indexed)
 	Serial.print("S");				  //substring denotes test result
 	Serial.println("1");				  //substring denotes test pass
+	ret += (chn+1);
+	ret += "S";
+	ret += "1";
+	return ret;
 }
 
 void setChannelClear(unsigned int chn) {
@@ -224,25 +259,31 @@ void clearChannels() {  //This immediately clear all channels and timeouts
 	}
 }
 
-void setModeSafety() {
+String setModeSafety() {
+	String ret = "O0";
 	digitalWrite(highSupplyControlPin, LOW);
 	digitalWrite(lowSupplyControlPin, LOW);
 	digitalWrite(testControlPin, LOW);
-	Serial.println("O0");
+	//Serial.println("O0");
+	return ret;
 }
 
-void setModeTest() {
+String setModeTest() {
+	String ret = "O1";
 	digitalWrite(highSupplyControlPin, LOW);
 	delay(SWITCH_MODE_DELAY);
 	digitalWrite(lowSupplyControlPin, HIGH);
 	digitalWrite(testControlPin, HIGH);
-	Serial.println("O1");
+	//Serial.println("O1");
+	return ret;
 }
 
-void setModeArmed() {
+String setModeArmed() {
+	String ret = "O2";
 	digitalWrite(lowSupplyControlPin, LOW);
 	digitalWrite(testControlPin, LOW);
 	delay(SWITCH_MODE_DELAY);
 	digitalWrite(highSupplyControlPin, HIGH);
-	Serial.println("O2");
+	//Serial.println("O2");
+	return ret;
 }
