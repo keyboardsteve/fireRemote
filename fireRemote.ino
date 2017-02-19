@@ -153,8 +153,8 @@ String processCommand(String cmd) {
 				ret = setChannelTest(tmp.toInt()-1);
 
 				unsigned int j = 0;
-				while ((j < 2) && (!testDone)) {
-					delay(500);
+				while ((j < 3) && (!testDone)) {
+					delay(250);
 					j++;
 				}
 				if (testDone) {
