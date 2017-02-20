@@ -30,7 +30,7 @@ int testControlPin = 10;   //These should be on the "normal" side of the relay (
 int testSensePin = 3;  //Use Pin 2 for the Test input pin
 volatile int hbCounter = 0;
 
-volatile bool testDone = false;
+volatile bool testPassed = false;
 volatile bool timeToSendHeartbeat = false;
 volatile bool timeToShiftData = false;
 
@@ -74,7 +74,6 @@ void setup(){
 void loop()
 {
 	String response = "";
-	testDone = false;
 
 	if (Serial.available() > 0) {
 		char c = Serial.read();
@@ -149,16 +148,17 @@ String processCommand(String cmd) {
 				ret = setChannelTest(tmp.toInt()-1);
 
 				unsigned int j = 0;
-				while ((j < 3) && (!testDone)) {
+				while ((j < 3) && (!testPassed)) {
 					delay(250);
 					j++;
 				}
-				if (testDone) {
+				if (testPassed) {
 					 ret += "1";
 				}
 				else {
 					ret += "0";
 				}
+				testPassed = false;
 			}
 			else if (operatingMode == '2') {  //FIRE MODE
 				ret = setChannelFire(tmp.toInt()-1);
@@ -190,7 +190,7 @@ String processCommand(String cmd) {
 }
 
 void testCircuit() {
-	testDone = true;
+	testPassed = true;
 }
 
 String setChannelFire(unsigned int chn) {
