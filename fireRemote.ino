@@ -9,6 +9,8 @@
 #define NUMCHIPS 7
 #define SWITCH_MODE_DELAY 500
 #define TTL 10 //The number of interrupt cycles that the channel will be held active.  Interrupt @ 10Hz (10 = 1 seconds)
+#define HB_PERIOD 5   //This is in 1/10th of a second.  5 => .5 seconds
+#define TEST_PERIOD 5 //This is in 1/10th of a second.  5 => .5 seconds
 
 char operatingMode = '0';
 char testStatus = '0';
@@ -18,7 +20,6 @@ String command = "";
 
 byte channels[NUMCHIPS]; //Each byte element represents an 8-bit shift register.
 int channelTimeouts[NUMCHIPS*8];  //each integer in the array represents a Time-To-Live value
-
 
 /* The two interrupt pins we have on this thing are 2 & 3 */
 int latchPin = 8;
@@ -30,7 +31,12 @@ int testControlPin = 10;   //These should be on the "normal" side of the relay (
 int testSensePin = 3;  //Use Pin 2 for the Test input pin
 volatile int hbCounter = 0;
 
+volatile int testCounter = 0;
+int testChannel = -1;
+bool testRunning = false;
 volatile bool testPassed = false;
+
+volatile bool timeToFinishTesting = false;
 volatile bool timeToSendHeartbeat = false;
 volatile bool timeToShiftData = false;
 
@@ -98,16 +104,29 @@ void loop()
 		timeToShiftData = false;
 		shiftData();
 	}
+	if (testRunning) {
+		if (timeToFinishTesting) {
+			timeToFinishTesting = false;
+			String response = stopTest();
+			Serial.println(response);
+		}
+	}
 }
 
 ISR(TIMER1_COMPA_vect) {
 	timeToShiftData = true;
 
 	hbCounter += 1;
-	if (hbCounter >= 5) {
+	if (hbCounter >= HB_PERIOD) {
 		hbCounter = 0;
 		timeToSendHeartbeat = true;
-
+	}
+	if (testRunning) {
+		testCounter += 1;
+		if (testCounter >= TEST_PERIOD) {
+			testCounter = 0;
+			timeToFinishTesting = true;
+		}
 	}
 }
 
@@ -145,20 +164,8 @@ String processCommand(String cmd) {
 				}
 			}
 			if (operatingMode == '1') {  //TEST MODE
-				ret = setChannelTest(tmp.toInt()-1);
-
-				unsigned int j = 0;
-				while ((j < 3) && (!testPassed)) {
-					delay(250);
-					j++;
-				}
-				if (testPassed) {
-					 ret += "1";
-				}
-				else {
-					ret += "0";
-				}
-				testPassed = false;
+				clearChannels();
+				startTest(tmp.toInt()-1);
 			}
 			else if (operatingMode == '2') {  //FIRE MODE
 				ret = setChannelFire(tmp.toInt()-1);
@@ -189,6 +196,29 @@ String processCommand(String cmd) {
 	return ret;
 }
 
+void startTest(unsigned int chn) {
+	testRunning = true;
+	testChannel = chn;
+	testCounter = 0;
+	setChannelTest(chn);
+}
+
+String stopTest() {
+	String ret = "T";
+	ret += String(testChannel + 1);
+	ret += "S";
+	if (testPassed) {
+		ret += "1";
+	}
+	else {
+		ret += "0";
+	}
+	testRunning = false;
+	testPassed = false;
+	testChannel = -1;
+	return ret;
+}
+
 void testCircuit() {
 	testPassed = true;
 }
@@ -208,26 +238,16 @@ String setChannelFire(unsigned int chn) {
 
 void setChannelClear(unsigned int chn) {
 	int chip = chn/8;
-
 	bitSet(channels[chip], chn%8);
 }
 
-String setChannelTest(unsigned int chn) {
+void setChannelTest(unsigned int chn) {
 	int chip = chn/8;
-	int channel = chn+1;
-	String ret = "";
-
-	clearChannels();
 	bitClear(channels[chip], chn%8);
 	channelTimeouts[chn] = TTL;
-	ret += "T";
-	ret += String(channel);
-	ret += "S";
-	return ret;
 }
 
 void clearChannels() {  //This immediately clear all channels and timeouts
-
 	for (unsigned int i=0; i < NUMCHIPS; i++){ //pre-init the channels array to all ones for safety (relays are neg-logic)
 		channels[i] = B11111111;	         //each bit represents a channel fire state: ON||OFF
 	}
