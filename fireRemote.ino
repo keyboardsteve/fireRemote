@@ -6,11 +6,13 @@
 #define SAFETY 0
 #define TEST   1
 #define ARMED  2
-#define NUMCHIPS 7
+#define NUMCHIPS 14
 #define SWITCH_MODE_DELAY 500
-#define TTL 10 //The number of interrupt cycles that the channel will be held active.  Interrupt @ 10Hz (10 = 1 seconds)
+#define SHIFT_DATA_PERIOD 2
+#define TTL 5 //The number of interrupt cycles that the channel will be held active.  Interrupt @ 10Hz (10 = 1 seconds)
 #define HB_PERIOD 5   //This is in 1/10th of a second.  5 => .5 seconds
 #define TEST_PERIOD 5 //This is in 1/10th of a second.  5 => .5 seconds
+#define COMS_TIME_OUT_PERIOD 16 //This is in 1/10th of a second.  10 => 1.0 seconds
 
 char operatingMode = '0';
 char testStatus = '0';
@@ -30,6 +32,11 @@ int lowSupplyControlPin = 7;  //These should be on the "normal" side of the rela
 int testControlPin = 10;   //These should be on the "normal" side of the relay (LOW inserts the test circuit)
 int testSensePin = 3;  //Use Pin 2 for the Test input pin
 volatile int hbCounter = 0;
+
+volatile int shiftDataCounter = 0;
+
+volatile int comsTimeOutTimer = 0;
+volatile bool comsTimedOut = false;
 
 volatile int testCounter = 0;
 int testChannel = -1;
@@ -62,6 +69,7 @@ void setup(){
 	while (!Serial){
 		//Serial.print('.');	//Initializing the PC coms
 	}
+	Serial.println("DBoot");
 
 	cli();  			//Stop all interrupts
 						//set timer1 interrupt at 1Hz
@@ -102,6 +110,7 @@ void loop()
 
 	if (timeToShiftData) {
 		timeToShiftData = false;
+		shiftDataCounter = 0;
 		shiftData();
 	}
 	if (testRunning) {
@@ -111,15 +120,33 @@ void loop()
 			Serial.println(response);
 		}
 	}
+	if (comsTimedOut) {
+		Serial.println("DComsTimedOut");
+		clearChannels();
+		setModeSafety();
+		operatingMode = '0';
+		comsTimeOutTimer = 0;
+		comsTimedOut = false;
+	}
 }
 
 ISR(TIMER1_COMPA_vect) {
-	timeToShiftData = true;
+
+	shiftDataCounter +=1;
+	if (shiftDataCounter >= SHIFT_DATA_PERIOD) {
+		timeToShiftData = true;
+		shiftDataCounter = 0;
+	}
+
 
 	hbCounter += 1;
 	if (hbCounter >= HB_PERIOD) {
 		hbCounter = 0;
 		timeToSendHeartbeat = true;
+	}
+	comsTimeOutTimer +=1;
+	if (comsTimeOutTimer >= COMS_TIME_OUT_PERIOD) {
+		comsTimedOut = true;
 	}
 	if (testRunning) {
 		testCounter += 1;
@@ -154,7 +181,8 @@ String processCommand(String cmd) {
 
 	switch (buff) {
 		case 'H':  //HEARTBEAT
-
+			comsTimeOutTimer = 0;
+			comsTimedOut = false;
 			break;
 		case 'F':  //FIRE
 			//Need to pull the channel number from the command, eg:  F1, F123, etc...
